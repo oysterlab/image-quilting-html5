@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script src='./gpu.js'></script>
+</head>
+<body>
+  <script>
+    const gpu = new GPU();
+
+    const img = new Image()
+    img.src = './src.jpg'
+
+    img.onload = () => {
+      const width = img.width
+      const height = img.height
+
+      const srcCanvas = document.createElement('canvas')
+      srcCanvas.width = width
+      srcCanvas.height = height
+      const srcContext = srcCanvas.getContext('2d')
+      srcContext.drawImage(img, 0, 0)
+      const srcImgData = srcContext.getImageData(0, 0, width, height).data
+      let resultImgData = srcContext.getImageData(0, 0, width, height).data
+
+      let left = width
+      let top = height
+      let right = 0
+      let bottom = 0
+
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const i = y * width + x;
+          const i4 = i * 4;
+
+          if( (srcImgData[i4 + 0] == 0) && (srcImgData[i4 + 1] == 255) && (srcImgData[i4 + 2] == 0) ) {
+            if(left > x) {
+              left = x;
+            }
+            if(right < x) {
+              right = x;
+            }
+            if(top > y) {
+              top = y;
+            }
+            if(bottom < y) {
+              bottom = y;
+            }
+          }
+        }
+      }
+
+      const unknownArea = {
+        x: left,
+        y: top,
+        w: right - left + 1,
+        h: bottom - top + 1
+      }
+
+      srcContext.fillRect(unknownArea.x, unknownArea.y, unknownArea.w, unknownArea.h)
+
+      const COUNT = 10000
+      const TILE_SIZE = {w: 128, h: 128}
+      const OVERLAP_AREA = {w: 8, h: 8}
+
+      const rowCount = parseInt(unknownArea.w / (TILE_SIZE.w - OVERLAP_AREA.w)) + 1
+      const colCount = parseInt(unknownArea.h / (TILE_SIZE.h - OVERLAP_AREA.h)) + 1
+
+      const tiles = []
+      srcContext.fillStyle = 'rgba(255, 0, 0, 0.2)'
+      for (let c = 0; c < colCount; c++) {
+        for (let r = 0; r < rowCount; r++) {
+          const x = unknownArea.x + r * TILE_SIZE.w - OVERLAP_AREA.w * (r + 1)
+          const y = unknownArea.y + c * TILE_SIZE.h - OVERLAP_AREA.h * (c + 1)
+
+//          srcContext.fillRect(x, y, TILE_SIZE.w, TILE_SIZE.h)
+          tiles.push([x, y])
+        }
+      }
+      document.body.appendChild(srcCanvas)
+
+      const evaluation = gpu.createKernel(function(src, res, rands, target) {
+        const j = this.thread.x;
+        const ROIColorR = this.constants.ROIColorR;
+        const ROIColorG = this.constants.ROIColorG;
+        const ROIColorB = this.constants.ROIColorB;
+
+        let sum = 0;
+        for (let y_ = 0; y_ < this.constants.h; y_++) {
+          for (let x_ = 0; x_ < this.constants.w; x_++) {
+            const tx = target[0] + x_;
+            const ty = target[1] + y_;
+            const ti = ty * this.constants.width + tx;
+            const ti4 = ti * 4;
+            const tr = src[ti4 + 0];
+            const tg = src[ti4 + 1];
+            const tb = src[ti4 + 2];
+
+            const rx = rands[j][0] + x_;
+            const ry = rands[j][1] + y_;
+            const ri = ry * this.constants.width + rx;
+            const ri4 = ri * 4;
+            const rr = res[ri4 + 0];
+            const rg = res[ri4 + 1];
+            const rb = res[ri4 + 2];
+
+            if ( !((tr == ROIColorR) && (tg == ROIColorG) && (tb == ROIColorB)) ) {
+              sum += Math.sqrt(Math.pow((tr - rr), 2) + Math.pow((tg - rg), 2) + Math.pow((tb - rb), 2));
+            }
+          }
+        }
+
+        return sum;
+      }, {
+        constants: {
+            w: TILE_SIZE.w,
+            h: TILE_SIZE.h,
+            width,
+            ROIColorR: 1,
+            ROIColorG: 255,
+            ROIColorB: 0
+        },
+        output: [COUNT]
+      });
+
+
+      console.log('count', tiles.length)
+      for(let k = 0; k < rowCount; k+=1) {
+        console.log('======== ' + k + ' ========')
+        const randoms = []
+        for(let i = 0; i < COUNT; i++) {
+          const x = parseInt(Math.random() * (width - TILE_SIZE.w));
+          const y = parseInt(Math.random() * (unknownArea.y - TILE_SIZE.h));
+          randoms.push([x, y])
+        }
+
+        const startTime = new Date()
+        const result = evaluation(srcImgData, resultImgData, randoms, tiles[k]);
+        console.log('result', result)
+        let minVal = 1000000000;
+        let minIdx = -1;
+        for (let i = 0; i < result.length; i++) {
+          if(minVal > result[i]) {
+            minVal = result[i]
+            minIdx = i
+          }
+        }
+
+        srcContext.drawImage(img, randoms[minIdx][0], randoms[minIdx][1], TILE_SIZE.w, TILE_SIZE.h, tiles[k][0], tiles[k][1], TILE_SIZE.w, TILE_SIZE.h)
+        console.log(randoms[minIdx], minVal)
+        console.log((new Date()) - startTime)
+        resultImgData = srcContext.getImageData(0, 0, width, height).data
+      }
+
+    }
+
+  </script>
+</body>
+</html>
