@@ -8,7 +8,7 @@
     const gpu = new GPU();
 
     const img = new Image()
-    img.src = './src.jpg'
+    img.src = './src2.png'
 
     img.onload = () => {
       const width = img.width
@@ -56,11 +56,11 @@
         h: bottom - top + 1
       }
 
-      srcContext.fillRect(unknownArea.x, unknownArea.y, unknownArea.w, unknownArea.h)
+//      srcContext.fillRect(unknownArea.x, unknownArea.y, unknownArea.w, unknownArea.h)
 
       const COUNT = 10000
       const TILE_SIZE = {w: 128, h: 128}
-      const OVERLAP_AREA = {w: 8, h: 8}
+      const OVERLAP_AREA = {w: 16, h: 16}
 
       const rowCount = parseInt(unknownArea.w / (TILE_SIZE.w - OVERLAP_AREA.w)) + 1
       const colCount = parseInt(unknownArea.h / (TILE_SIZE.h - OVERLAP_AREA.h)) + 1
@@ -91,19 +91,20 @@
             const ty = target[1] + y_;
             const ti = ty * this.constants.width + tx;
             const ti4 = ti * 4;
-            const tr = src[ti4 + 0];
-            const tg = src[ti4 + 1];
-            const tb = src[ti4 + 2];
+            const tr = res[ti4 + 0];
+            const tg = res[ti4 + 1];
+            const tb = res[ti4 + 2];
 
             const rx = rands[j][0] + x_;
             const ry = rands[j][1] + y_;
             const ri = ry * this.constants.width + rx;
             const ri4 = ri * 4;
-            const rr = res[ri4 + 0];
-            const rg = res[ri4 + 1];
-            const rb = res[ri4 + 2];
+            const rr = src[ri4 + 0];
+            const rg = src[ri4 + 1];
+            const rb = src[ri4 + 2];
 
-            if ( !((tr == ROIColorR) && (tg == ROIColorG) && (tb == ROIColorB)) ) {
+            const len = Math.sqrt(Math.pow(tr - ROIColorR, 2) + Math.pow(tg - ROIColorG, 2) + Math.pow(tb - ROIColorB, 2))
+            if (len > 10) {
               sum += Math.sqrt(Math.pow((tr - rr), 2) + Math.pow((tg - rg), 2) + Math.pow((tb - rb), 2));
             }
           }
@@ -115,43 +116,64 @@
             w: TILE_SIZE.w,
             h: TILE_SIZE.h,
             width,
-            ROIColorR: 1,
+            ROIColorR: 4,
             ROIColorG: 255,
             ROIColorB: 0
         },
         output: [COUNT]
       });
 
+      const randoms = []
+      for(let i = 0; i < COUNT; i++) {
 
-      console.log('count', tiles.length)
-      for(let k = 0; k < rowCount; k+=1) {
-        console.log('======== ' + k + ' ========')
-        const randoms = []
-        for(let i = 0; i < COUNT; i++) {
-          const x = parseInt(Math.random() * (width - TILE_SIZE.w));
-          const y = parseInt(Math.random() * (unknownArea.y - TILE_SIZE.h));
-          randoms.push([x, y])
-        }
+        const x = parseInt(Math.random() * (width - TILE_SIZE.w));
+        const y = parseInt(Math.random() * (unknownArea.y - TILE_SIZE.h));
 
-        const startTime = new Date()
-        const result = evaluation(srcImgData, resultImgData, randoms, tiles[k]);
-        console.log('result', result)
-        let minVal = 1000000000;
-        let minIdx = -1;
-        for (let i = 0; i < result.length; i++) {
-          if(minVal > result[i]) {
-            minVal = result[i]
-            minIdx = i
-          }
-        }
+        // const x = parseInt(Math.random() * (unknownArea.x - TILE_SIZE.w));
+        // const y = parseInt(Math.random() * (height - TILE_SIZE.h));
 
-        srcContext.drawImage(img, randoms[minIdx][0], randoms[minIdx][1], TILE_SIZE.w, TILE_SIZE.h, tiles[k][0], tiles[k][1], TILE_SIZE.w, TILE_SIZE.h)
-        console.log(randoms[minIdx], minVal)
-        console.log((new Date()) - startTime)
-        resultImgData = srcContext.getImageData(0, 0, width, height).data
+        randoms.push([x, y])
       }
 
+      function genPatch(tiles, k, srcImgData, resultImgData) {
+        console.log("=========" + k + "==========")
+        new Promise((resolve) => {
+
+          const startTime = new Date()
+          const result = evaluation(srcImgData, resultImgData, randoms, tiles[k]);
+
+          let minVal = 1000000000;
+          let minIdx = -1;
+          for (let i = 0; i < result.length; i++) {
+            if(minVal > result[i]) {
+              minVal = result[i]
+              minIdx = i
+            }
+          }
+
+          srcContext.drawImage(img, randoms[minIdx][0], randoms[minIdx][1], TILE_SIZE.w, TILE_SIZE.h, tiles[k][0], tiles[k][1], TILE_SIZE.w, TILE_SIZE.h)
+          console.log(randoms[minIdx], minVal)
+          console.log((new Date()) - startTime)
+          resultImgData = srcContext.getImageData(0, 0, width, height).data
+
+          setTimeout(() => {
+            resolve({result: resultImgData, k})
+          }, 1000)
+        }).then(({result, k}) => {
+          if(k < rowCount * 2 - 1) {
+            genPatch(tiles, k + 1, srcImgData, result)
+          } else {
+            console.log('done')
+          }
+        });
+      }
+      console.log('count', tiles.length)
+
+
+      genPatch(tiles, 0, srcImgData, resultImgData)
+
     }
+
 
   </script>
 </body>
