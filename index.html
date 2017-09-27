@@ -8,7 +8,7 @@
     const gpu = new GPU();
 
     const img = new Image()
-    img.src = './src2.png'
+    img.src = './src.jpg'
 
     img.onload = () => {
       const width = img.width
@@ -32,7 +32,8 @@
           const i = y * width + x;
           const i4 = i * 4;
 
-          if( (srcImgData[i4 + 0] == 0) && (srcImgData[i4 + 1] == 255) && (srcImgData[i4 + 2] == 0) ) {
+          const l = Math.sqrt(Math.pow(srcImgData[i4 + 0] - 0, 2) + Math.pow(srcImgData[i4 + 1] - 255, 2) + Math.pow(srcImgData[i4 + 2] - 0, 2), 2)
+          if(l < 4) {
             if(left > x) {
               left = x;
             }
@@ -56,11 +57,12 @@
         h: bottom - top + 1
       }
 
-//      srcContext.fillRect(unknownArea.x, unknownArea.y, unknownArea.w, unknownArea.h)
+      srcContext.fillStyle = '#000'
+      srcContext.fillRect(unknownArea.x, unknownArea.y, unknownArea.w, unknownArea.h)
 
       const COUNT = 10000
       const TILE_SIZE = {w: 128, h: 128}
-      const OVERLAP_AREA = {w: 16, h: 16}
+      const OVERLAP_AREA = {w: 30, h: 30}
 
       const rowCount = parseInt(unknownArea.w / (TILE_SIZE.w - OVERLAP_AREA.w)) + 1
       const colCount = parseInt(unknownArea.h / (TILE_SIZE.h - OVERLAP_AREA.h)) + 1
@@ -104,8 +106,10 @@
             const rb = src[ri4 + 2];
 
             const len = Math.sqrt(Math.pow(tr - ROIColorR, 2) + Math.pow(tg - ROIColorG, 2) + Math.pow(tb - ROIColorB, 2))
-            if (len > 10) {
-              sum += Math.sqrt(Math.pow((tr - rr), 2) + Math.pow((tg - rg), 2) + Math.pow((tb - rb), 2));
+            if (len > 1) {
+              const targetLumi = tr * 0.2126 + tg * 0.7152 + tb * 0.0722;
+              const randomLumi = rr * 0.2126 + rg * 0.7152 + rb * 0.0722;
+              sum += Math.sqrt(Math.pow(targetLumi - randomLumi, 2));
             }
           }
         }
@@ -116,8 +120,8 @@
             w: TILE_SIZE.w,
             h: TILE_SIZE.h,
             width,
-            ROIColorR: 4,
-            ROIColorG: 255,
+            ROIColorR: 0,
+            ROIColorG: 0,
             ROIColorB: 0
         },
         output: [COUNT]
@@ -126,11 +130,25 @@
       const randoms = []
       for(let i = 0; i < COUNT; i++) {
 
-        const x = parseInt(Math.random() * (width - TILE_SIZE.w));
-        const y = parseInt(Math.random() * (unknownArea.y - TILE_SIZE.h));
+        const side = Math.random()
 
-        // const x = parseInt(Math.random() * (unknownArea.x - TILE_SIZE.w));
-        // const y = parseInt(Math.random() * (height - TILE_SIZE.h));
+        let x = 0;
+        let y = 0;
+        if(side < 0.25) { //top
+          x = parseInt(Math.random() * (width - TILE_SIZE.w));
+          y = parseInt(Math.random() * (unknownArea.y - TILE_SIZE.h));
+        } else if(side < 0.5) { //right
+          const w_ = unknownArea.x + unknownArea.w
+          x = parseInt(w_ + Math.random() * (width - w_ - TILE_SIZE.w));
+          y = parseInt(Math.random() * (unknownArea.y - TILE_SIZE.h));
+        } else if(side < 0.75) { //bottom
+          const h_ = unknownArea.y + unknownArea.h
+          x = parseInt(Math.random() * (width - TILE_SIZE.w));
+          y = parseInt(h_ + Math.random() * (height - h_ - TILE_SIZE.h));
+        } else { //left
+          x = parseInt(Math.random() * (unknownArea.x - TILE_SIZE.w));
+          y = parseInt(Math.random() * (height - TILE_SIZE.h));
+        }
 
         randoms.push([x, y])
       }
@@ -151,16 +169,195 @@
             }
           }
 
-          srcContext.drawImage(img, randoms[minIdx][0], randoms[minIdx][1], TILE_SIZE.w, TILE_SIZE.h, tiles[k][0], tiles[k][1], TILE_SIZE.w, TILE_SIZE.h)
+          const originPatch = srcContext.getImageData(tiles[k][0], tiles[k][1], TILE_SIZE.w, TILE_SIZE.h)
+          const targetPatch = srcContext.getImageData(randoms[minIdx][0], randoms[minIdx][1], TILE_SIZE.w, TILE_SIZE.h)
+
+//          top
+          // for(let cx = 0 ; cx < TILE_SIZE.w; cx++) {
+          //   let minVal = -1;
+          //   let minIdx = 0;
+          //
+          //   for(let cy = 0 ; cy < OVERLAP_AREA.h; cy++) {
+          //     const i4 = (cy * TILE_SIZE.w + cx) * 4;
+          //     const ol = originPatch.data[i4 + 0] * 0.2126 + originPatch.data[i4 + 1] * 0.7152 + originPatch.data[i4 + 2] * 0.0722
+          //     const tl = targetPatch.data[i4 + 0] * 0.2126 + targetPatch.data[i4 + 1] * 0.7152 + targetPatch.data[i4 + 2] * 0.0722
+          //
+          //     const cv = Math.pow(ol - tl, 2)
+          //
+          //     if(minVal > cv || minVal == -1) {
+          //       minVal = cv
+          //       minIdx = cy
+          //     }
+          //   }
+          //
+          //   // const i4_ = (minIdx * TILE_SIZE.w + cx) * 4;
+          //   // targetPatch.data[i4_ + 0] = 0;
+          //   // targetPatch.data[i4_ + 1] = 255;
+          //   // targetPatch.data[i4_ + 2] = 0;
+          //   for (let i = 0; i < OVERLAP_AREA.h; i++) {
+          //     const i4 = (i * TILE_SIZE.w + cx) * 4;
+          //     if (i <= minIdx) {
+          //       targetPatch.data[i4 + 0] = originPatch.data[i4 + 0]
+          //       targetPatch.data[i4 + 1] = originPatch.data[i4 + 1]
+          //       targetPatch.data[i4 + 2] = originPatch.data[i4 + 2]
+          //     }
+          //   }
+          // }
+
+          const diffPatch = []
+          let pl, pr, pt, pb;
+
+          for (let y = 0; y < TILE_SIZE.h; y++) {
+            for (let x = 0; x < TILE_SIZE.w; x++) {
+              const i = y * TILE_SIZE.w + x
+              const i4 = i * 4
+
+              for (let c = 0; c < 4; c++) {
+                const v = Math.sqrt(Math.pow(targetPatch.data[i4 + c] - originPatch.data[i4 + c], 2))
+                diffPatch.push(v)
+              }
+
+              if ((originPatch.data[i4 + 0] == 0) && (originPatch.data[i4 + 1] == 0) && (originPatch.data[i4 + 2] == 0)) {
+                if(pl > x || !pl) pl = x
+                if(pr < x || !pr) pr = x
+                if(pt > y || !pt) pt = y
+                if(pb < y || !pb) pb = y
+              }
+            }
+          }
+
+          //top
+          if (pt > 0) {
+            for(let cx = 0 ; cx < TILE_SIZE.w; cx++) {
+              let minVal = -1;
+              let minIdx = 0;
+
+              for(let cy = 0 ; cy < pt; cy++) {
+                const i4 = (cy * TILE_SIZE.w + cx) * 4;
+                const ol = originPatch.data[i4 + 0] * 0.2126 + originPatch.data[i4 + 1] * 0.7152 + originPatch.data[i4 + 2] * 0.0722
+                const tl = targetPatch.data[i4 + 0] * 0.2126 + targetPatch.data[i4 + 1] * 0.7152 + targetPatch.data[i4 + 2] * 0.0722
+
+                const cv = Math.pow(ol - tl, 2)
+
+                if(minVal > cv || minVal == -1) {
+                  minVal = cv
+                  minIdx = cy
+                }
+              }
+
+              for (let i = 0; i < pt; i++) {
+                const i4 = (i * TILE_SIZE.w + cx) * 4;
+                if (i <= minIdx) {
+                  targetPatch.data[i4 + 0] = originPatch.data[i4 + 0]
+                  targetPatch.data[i4 + 1] = originPatch.data[i4 + 1]
+                  targetPatch.data[i4 + 2] = originPatch.data[i4 + 2]
+                }
+              }
+            }
+          }
+
+          //right
+          if (pr < TILE_SIZE.w - 1) {
+
+            for(let cy = 0 ; cy < TILE_SIZE.h; cy++) {
+              let minVal = -1;
+              let minIdx = 0;
+
+              for(let cx = pr ; cx < TILE_SIZE.w; cx++) {
+                const i4 = (cy * TILE_SIZE.w + cx) * 4;
+                const ol = originPatch.data[i4 + 0] * 0.2126 + originPatch.data[i4 + 1] * 0.7152 + originPatch.data[i4 + 2] * 0.0722
+                const tl = targetPatch.data[i4 + 0] * 0.2126 + targetPatch.data[i4 + 1] * 0.7152 + targetPatch.data[i4 + 2] * 0.0722
+
+                const cv = Math.pow(ol - tl, 2)
+
+                if(minVal > cv || minVal == -1) {
+                  minVal = cv
+                  minIdx = cx
+                }
+              }
+
+              for (let i = pr + 1; i < TILE_SIZE.w; i++) {
+                const i4 = (cy * TILE_SIZE.w + i) * 4;
+                if (i >= minIdx) {
+                  targetPatch.data[i4 + 0] = originPatch.data[i4 + 0]
+                  targetPatch.data[i4 + 1] = originPatch.data[i4 + 1]
+                  targetPatch.data[i4 + 2] = originPatch.data[i4 + 2]
+                }
+              }
+            }
+          }
+
+          //bottom
+          if (pb < TILE_SIZE.h - 1) {
+            for(let cx = 0 ; cx < TILE_SIZE.w; cx++) {
+              let minVal = -1;
+              let minIdx = 0;
+
+              for(let cy = pb ; cy < TILE_SIZE.h; cy++) {
+                const i4 = (cy * TILE_SIZE.w + cx) * 4;
+                const ol = originPatch.data[i4 + 0] * 0.2126 + originPatch.data[i4 + 1] * 0.7152 + originPatch.data[i4 + 2] * 0.0722
+                const tl = targetPatch.data[i4 + 0] * 0.2126 + targetPatch.data[i4 + 1] * 0.7152 + targetPatch.data[i4 + 2] * 0.0722
+
+                const cv = Math.pow(ol - tl, 2)
+
+                if(minVal > cv || minVal == -1) {
+                  minVal = cv
+                  minIdx = cy
+                }
+              }
+
+              for (let i = pb + 1; i < TILE_SIZE.h; i++) {
+                const i4 = (i * TILE_SIZE.w + cx) * 4;
+                if (i >= minIdx) {
+                  targetPatch.data[i4 + 0] = originPatch.data[i4 + 0]
+                  targetPatch.data[i4 + 1] = originPatch.data[i4 + 1]
+                  targetPatch.data[i4 + 2] = originPatch.data[i4 + 2]
+                }
+              }
+            }
+          }
+
+          //left
+          if (pl > 0) {
+            for(let cy = 0 ; cy < TILE_SIZE.h; cy++) {
+              let minVal = -1;
+              let minIdx = 0;
+
+              for(let cx = 0 ; cx < pl; cx++) {
+                const i4 = (cy * TILE_SIZE.w + cx) * 4;
+                const ol = originPatch.data[i4 + 0] * 0.2126 + originPatch.data[i4 + 1] * 0.7152 + originPatch.data[i4 + 2] * 0.0722
+                const tl = targetPatch.data[i4 + 0] * 0.2126 + targetPatch.data[i4 + 1] * 0.7152 + targetPatch.data[i4 + 2] * 0.0722
+
+                const cv = Math.pow(ol - tl, 2)
+
+                if(minVal > cv || minVal == -1) {
+                  minVal = cv
+                  minIdx = cx
+                }
+              }
+
+              for (let i = 0; i < pl; i++) {
+                const i4 = (cy * TILE_SIZE.w + i) * 4;
+                if (i <= minIdx) {
+                  targetPatch.data[i4 + 0] = originPatch.data[i4 + 0]
+                  targetPatch.data[i4 + 1] = originPatch.data[i4 + 1]
+                  targetPatch.data[i4 + 2] = originPatch.data[i4 + 2]
+                }
+              }
+            }
+          }
+
+          srcContext.putImageData(targetPatch, tiles[k][0], tiles[k][1])
+//          srcContext.drawImage(img, randoms[minIdx][0], randoms[minIdx][1], TILE_SIZE.w, TILE_SIZE.h, tiles[k][0], tiles[k][1], TILE_SIZE.w, TILE_SIZE.h)
           console.log(randoms[minIdx], minVal)
           console.log((new Date()) - startTime)
           resultImgData = srcContext.getImageData(0, 0, width, height).data
 
           setTimeout(() => {
             resolve({result: resultImgData, k})
-          }, 1000)
+          }, 10)
         }).then(({result, k}) => {
-          if(k < rowCount * 2 - 1) {
+          if(k < tiles.length - 1) {
             genPatch(tiles, k + 1, srcImgData, result)
           } else {
             console.log('done')
